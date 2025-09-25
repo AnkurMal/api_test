@@ -1,27 +1,37 @@
-use std::{env, error::Error, net::SocketAddr, sync::Arc};
+mod database;
+use std::{env, error::Error, net::SocketAddr};
 
-use axum::{Extension, Json, Router, routing::get};
-use futures::TryStreamExt;
-use mongodb::{
-    Client, Collection,
-    bson::{Document, doc},
+use axum::{
+    Json, Router,
+    response::IntoResponse,
+    routing::{get, post},
 };
-use serde_json::{Value, json};
+use futures::TryStreamExt;
+use mongodb::bson::{Document, doc};
+use serde::Deserialize;
+use serde_json::json;
+use tower_http::cors::{Any, CorsLayer};
+
+use database::get_database;
+
+#[derive(Deserialize)]
+struct Credentials {
+    username: String,
+    password: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let port: u16 = env::var("PORT").unwrap_or("3000".to_string()).parse()?;
-
-    let uri = env::var("MONGO_URI").expect("MONGO_URI environment variable must be set");
-    let client = Client::with_uri_str(uri).await?;
-
-    let database = client.database("sample");
-    let coll = database.collection::<Document>("posts");
-    let shared_coll = Arc::new(coll);
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
 
     let app = Router::new()
         .route("/posts", get(get_posts))
-        .layer(Extension(shared_coll));
+        .route("/register", post(verify_user))
+        .layer(cors);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("Server running at http://{}", addr);
@@ -32,7 +42,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn get_posts(Extension(coll): Extension<Arc<Collection<Document>>>) -> Json<Vec<Value>> {
+async fn verify_user(Json(credentials): Json<Credentials>) -> impl IntoResponse {
+    let coll = get_database().await.collection::<Document>("credentials");
+    let filter = doc! {
+        "username": credentials.username,
+        "password": credentials.password
+    };
+
+    match coll.find_one(filter).await.unwrap() {
+        Some(_) => Json(json!({ "success": true })),
+        _ => Json(json!({ "success": false })),
+    }
+}
+
+async fn get_posts() -> impl IntoResponse {
+    let coll = get_database().await.collection::<Document>("posts");
+
     let mut cursor = coll.find(doc! {}).await.unwrap();
     let mut json_array = Vec::new();
 
