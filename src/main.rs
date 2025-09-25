@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let app = Router::new()
         .route("/posts", get(get_posts))
-        .route("/register", post(verify_user))
+        .route("/login", post(verify_user))
         .layer(cors);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
