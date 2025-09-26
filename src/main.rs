@@ -11,8 +11,7 @@ use mongodb::bson::{Document, doc};
 use serde::Deserialize;
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
-
-use database::get_database;
+use database::*;
 
 #[derive(Deserialize)]
 struct Credentials {
@@ -43,7 +42,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn verify_user(Json(credentials): Json<Credentials>) -> impl IntoResponse {
-    let coll = get_database().await.collection::<Document>("credentials");
+    let coll = db!().collection::<Document>("credentials");
     let filter = doc! {
         "username": credentials.username,
         "password": credentials.password
@@ -56,7 +55,7 @@ async fn verify_user(Json(credentials): Json<Credentials>) -> impl IntoResponse 
 }
 
 async fn get_posts() -> impl IntoResponse {
-    let coll = get_database().await.collection::<Document>("posts");
+    let coll = db!().collection::<Document>("posts");
 
     let mut cursor = coll.find(doc! {}).await.unwrap();
     let mut json_array = Vec::new();
