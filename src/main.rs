@@ -6,14 +6,14 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
+use database::*;
 use futures::TryStreamExt;
-use mongodb::bson::{Document, doc};
-use serde::Deserialize;
+use mongodb::bson::{self, Document, doc};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_http::cors::{Any, CorsLayer};
-use database::*;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Debug)]
 struct Credentials {
     username: String,
     password: String,
@@ -29,7 +29,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let app = Router::new()
         .route("/posts", get(get_posts))
-        .route("/login", post(verify_user))
+        .route("/login", post(user_login))
+        .route("/register", post(user_register))
         .layer(cors);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -41,16 +42,39 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn verify_user(Json(credentials): Json<Credentials>) -> impl IntoResponse {
+async fn user_login(Json(credentials): Json<Credentials>) -> impl IntoResponse {
     let coll = db!().collection::<Document>("credentials");
     let filter = doc! {
-        "username": credentials.username,
-        "password": credentials.password
+        "username": credentials.username
     };
 
     match coll.find_one(filter).await.unwrap() {
-        Some(_) => Json(json!({ "success": true })),
-        _ => Json(json!({ "success": false })),
+        Some(res) => {
+            let res = bson::from_document::<Credentials>(res).unwrap();
+            if credentials.password == res.password {
+                Json(json!({ "username": true, "password": true }))
+            } else {
+                Json(json!({ "username": true, "password": false }))
+            }
+        }
+        _ => Json(json!({ "username": false})),
+    }
+}
+
+async fn user_register(Json(credentials): Json<Credentials>) -> impl IntoResponse {
+    let coll = db!().collection::<Document>("credentials");
+    let filter = doc! {
+        "username": &credentials.username
+    };
+
+    match coll.find_one(filter).await.unwrap() {
+        Some(_) => Json(json!({ "success": false})),
+        _ => {
+            coll.insert_one(bson::to_document(&credentials).unwrap())
+                .await
+                .unwrap();
+            Json(json!({ "success": true}))
+        }
     }
 }
 
